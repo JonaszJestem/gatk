@@ -14,10 +14,7 @@ import htsjdk.variant.variantcontext.Allele;
 import htsjdk.variant.variantcontext.VariantContext;
 import htsjdk.variant.variantcontext.VariantContextBuilder;
 import org.broadinstitute.hellbender.GATKBaseTest;
-import org.broadinstitute.hellbender.engine.FeatureInput;
-import org.broadinstitute.hellbender.engine.ReferenceContext;
-import org.broadinstitute.hellbender.engine.ReferenceDataSource;
-import org.broadinstitute.hellbender.engine.ReferenceMemorySource;
+import org.broadinstitute.hellbender.engine.*;
 import org.broadinstitute.hellbender.exceptions.GATKException;
 import org.broadinstitute.hellbender.testutils.FuncotatorReferenceTestUtils;
 import org.broadinstitute.hellbender.tools.funcotator.*;
@@ -1605,5 +1602,94 @@ public class GencodeFuncotationFactoryUnitTest extends GATKBaseTest {
 
     private static FeatureInput<? extends Feature> createFeatureInputForCntn4Ds(final String dsName) {
         return new FeatureInput<>(CNTN4_GENCODE_ANNOTATIONS_FILE_NAME, dsName, Collections.emptyMap());
+    }
+
+
+
+    @DataProvider
+    public Object[][] provideDataForCreateFuncotationsWithFlanks() {
+        return new Object[][] {
+                // 1 base past the 5' end, 5' flank size = 3000
+                { "MUC16", GencodeFuncotation.VariantClassification.FIVE_PRIME_FLANK, "chr19", 9092019, 9092019, "C", "A", 3000, 0, FuncotatorTestConstants.MUC16_GENCODE_ANNOTATIONS_FILE_NAME, FuncotatorTestConstants.MUC16_GENCODE_TRANSCRIPT_FASTA_FILE, refDataSourceHg19Ch19 },
+                // 10 bases past the 5' end, 5' flank size = 10
+                { "MUC16", GencodeFuncotation.VariantClassification.FIVE_PRIME_FLANK, "chr19", 9092028, 9092028, "A", "T", 10, 0, FuncotatorTestConstants.MUC16_GENCODE_ANNOTATIONS_FILE_NAME, FuncotatorTestConstants.MUC16_GENCODE_TRANSCRIPT_FASTA_FILE, refDataSourceHg19Ch19 },
+
+                // 1 base past the 5' end, 5' flank size = 0
+                { null, GencodeFuncotation.VariantClassification.IGR, "chr19", 9092019, 9092019, "C", "A", 0, 0, FuncotatorTestConstants.MUC16_GENCODE_ANNOTATIONS_FILE_NAME, FuncotatorTestConstants.MUC16_GENCODE_TRANSCRIPT_FASTA_FILE, refDataSourceHg19Ch19 },
+                // 10 bases past the 5' end, 5' flank size = 9
+                { null, GencodeFuncotation.VariantClassification.IGR, "chr19", 9092028, 9092028, "A", "T", 9, 0, FuncotatorTestConstants.MUC16_GENCODE_ANNOTATIONS_FILE_NAME, FuncotatorTestConstants.MUC16_GENCODE_TRANSCRIPT_FASTA_FILE, refDataSourceHg19Ch19 },
+
+                // 1 base past the 3' end, 3' flank size = 100
+                { "MUC16", GencodeFuncotation.VariantClassification.THREE_PRIME_FLANK, "chr19", 8959519, 8959519, "G", "A", 0, 100, FuncotatorTestConstants.MUC16_GENCODE_ANNOTATIONS_FILE_NAME, FuncotatorTestConstants.MUC16_GENCODE_TRANSCRIPT_FASTA_FILE, refDataSourceHg19Ch19 },
+                // 10 bases past the 3' end, 3' flank size = 10
+                { "MUC16", GencodeFuncotation.VariantClassification.THREE_PRIME_FLANK, "chr19", 8959510, 8959510, "A", "T", 0, 10, FuncotatorTestConstants.MUC16_GENCODE_ANNOTATIONS_FILE_NAME, FuncotatorTestConstants.MUC16_GENCODE_TRANSCRIPT_FASTA_FILE, refDataSourceHg19Ch19 },
+
+                // 1 base past the 3' end, 3' flank size = 0
+                { null, GencodeFuncotation.VariantClassification.IGR, "chr19", 8959519, 8959519, "G", "A", 0, 0, FuncotatorTestConstants.MUC16_GENCODE_ANNOTATIONS_FILE_NAME, FuncotatorTestConstants.MUC16_GENCODE_TRANSCRIPT_FASTA_FILE, refDataSourceHg19Ch19 },
+                // 10 bases past the 3' end, 3' flank size = 9
+                { null, GencodeFuncotation.VariantClassification.IGR, "chr19", 8959510, 8959510, "A", "T", 0, 9, FuncotatorTestConstants.MUC16_GENCODE_ANNOTATIONS_FILE_NAME, FuncotatorTestConstants.MUC16_GENCODE_TRANSCRIPT_FASTA_FILE, refDataSourceHg19Ch19 }
+
+        };
+    }
+
+    @Test(dataProvider = "provideDataForCreateFuncotationsWithFlanks")
+    void testCreateFuncotationsWithFlanks(final String expectedGeneName,
+                                          final GencodeFuncotation.VariantClassification expectedVariantClassification,
+                                          final String contig,
+                                          final int start,
+                                          final int end,
+                                          final String ref,
+                                          final String alt,
+                                          final int fivePrimeFlankSize,
+                                          final int threePrimeFlankSize,
+                                          final String transcriptGtfFile,
+                                          final String transcriptFastaFile,
+                                          final ReferenceDataSource referenceDataSource) {
+
+        final Allele refAllele = Allele.create(ref, true);
+        final Allele altAllele = Allele.create(alt);
+
+        final VariantContextBuilder variantContextBuilder = new VariantContextBuilder(
+                "",
+                contig,
+                start,
+                end,
+                Arrays.asList(refAllele, altAllele)
+        );
+        final VariantContext variantContext = variantContextBuilder.make();
+        final SimpleInterval variantInterval = new SimpleInterval(contig, start, end);
+
+        final ReferenceContext referenceContext = new ReferenceContext(referenceDataSource, variantInterval);
+
+        final FeatureInput<GencodeGtfFeature> gencodeFeatureInput = new FeatureInput<>(transcriptGtfFile, GencodeFuncotationFactory.DEFAULT_NAME, Collections.emptyMap());
+        final Map<FeatureInput<? extends Feature>, Class<? extends Feature>> featureInputMap = new HashMap<>();
+        featureInputMap.put(gencodeFeatureInput, GencodeGtfFeature.class);
+        final FeatureContext featureContext = FeatureContext.createFeatureContextForTesting(featureInputMap, "dummyName", variantInterval, VariantWalker.FEATURE_CACHE_LOOKAHEAD, 0, 0, null);
+
+        // Create a factory for our funcotations:
+        try (final GencodeFuncotationFactory funcotationFactory = new GencodeFuncotationFactory(
+                IOUtils.getPath(transcriptFastaFile),
+                "VERSION",
+                GencodeFuncotationFactory.DEFAULT_NAME,
+                FuncotatorArgumentDefinitions.TRANSCRIPT_SELECTION_MODE_DEFAULT_VALUE,
+                Collections.emptySet(),
+                new LinkedHashMap<>(),
+                gencodeFeatureInput,
+                fivePrimeFlankSize,
+                threePrimeFlankSize)) {
+
+            // We test against createFuncotations() rather than createFuncotationsOnVariant() here because
+            // the flanking feature relies on the query done in createFuncotations(), and we need to test
+            // that the query is padded appropriately.
+            final List<Funcotation> funcotations = funcotationFactory.createFuncotations(variantContext, referenceContext, featureContext);
+
+            // Make sure we get what we expected:
+            Assert.assertEquals(funcotations.size(), 1);
+
+            final GencodeFuncotation funcotation = (GencodeFuncotation)funcotations.get(0);
+
+            Assert.assertEquals(funcotation.getVariantClassification(), expectedVariantClassification, "Variant classification not correct");
+            Assert.assertEquals(funcotation.getHugoSymbol(), expectedGeneName, "Gene name not correct");
+        }
     }
 }
