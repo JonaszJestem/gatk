@@ -11,6 +11,7 @@ import org.broadinstitute.hellbender.CommandLineProgramTest;
 import org.broadinstitute.hellbender.GATKBaseTest;
 import org.broadinstitute.hellbender.Main;
 import org.broadinstitute.hellbender.cmdline.StandardArgumentDefinitions;
+import org.broadinstitute.hellbender.engine.AssemblyRegionWalker;
 import org.broadinstitute.hellbender.engine.FeatureDataSource;
 import org.broadinstitute.hellbender.testutils.ArgumentsBuilder;
 import org.broadinstitute.hellbender.testutils.VariantContextTestUtils;
@@ -19,6 +20,7 @@ import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.AssemblyBased
 import org.broadinstitute.hellbender.tools.walkers.validation.ConcordanceSummaryRecord;
 import org.broadinstitute.hellbender.utils.MathUtils;
 import org.broadinstitute.hellbender.utils.Utils;
+import org.broadinstitute.hellbender.utils.read.ArtificialReadUtils;
 import org.broadinstitute.hellbender.utils.read.GATKRead;
 import org.broadinstitute.hellbender.utils.read.SAMFileGATKReadWriter;
 import org.broadinstitute.hellbender.utils.variant.GATKVCFConstants;
@@ -583,11 +585,11 @@ public class Mutect2IntegrationTest extends CommandLineProgramTest {
         final byte poorQuality = 10;
         final byte goodQuality = 30;
         final int numReads = 20;
-        final List<GATKRead> refReads = M2TestingUtils.createReads(numReads, M2TestingUtils.DEFAULT_REF_BASES, samHeader, poorQuality);
-        final List<GATKRead> alt1Reads = M2TestingUtils.createReads(numReads, M2TestingUtils.DEFAULT_ALT_BASES, samHeader, goodQuality);
+        final List<GATKRead> refReads = M2TestingUtils.createReads(numReads, M2TestingUtils.DEFAULT_REF_BASES, samHeader, poorQuality, "ref");
+        final List<GATKRead> altReads = M2TestingUtils.createReads(numReads, M2TestingUtils.DEFAULT_ALT_BASES, samHeader, goodQuality, "alt");
 
         refReads.forEach(writer::addRead);
-        alt1Reads.forEach(writer::addRead);
+        altReads.forEach(writer::addRead);
         writer.close(); // closing the writer writes to the file
         // End creating sam file
 
@@ -610,6 +612,60 @@ public class Mutect2IntegrationTest extends CommandLineProgramTest {
         Assert.assertTrue(vc.isPresent());
         Assert.assertEquals(vc.get().getStart(), M2TestingUtils.DEFAULT_SNP_POSITION);
         Assert.assertFalse(vc.get().getFilters().contains(GATKVCFConstants.MEDIAN_BASE_QUALITY_FILTER_NAME));
+    }
+
+    @Test
+    public void testReadBasedAnnotations() throws IOException {
+        // Test case 1: with the read correction we lose the variant - blood biopsy-like case
+        // Start creating bam file
+        final int numAltPairs = 7;
+        final int depth = 100;
+        final int refDepth = depth - 2*numAltPairs;
+        final byte altQuality = 50;
+        final byte refQuality = 30;
+
+        final File samFile = File.createTempFile("liquid-biopsy", ".bam");
+        final SAMFileHeader samHeader = M2TestingUtils.createSamHeader();
+        final SAMFileGATKReadWriter writer = M2TestingUtils.getBareBonesSamWriter(samFile, samHeader);
+
+        final List<GATKRead> refReads = M2TestingUtils.createReads(refDepth, M2TestingUtils.DEFAULT_REF_BASES, samHeader, refQuality, "ref");
+        refReads.forEach(writer::addRead);
+        for (int i = 0; i < numAltPairs; i++){
+            // Create a read pair that completely overlap each other, which is not realistic but is easy to implement
+            // and captures the essence of the issue
+            final List<GATKRead> overlappingPair = ArtificialReadUtils.createPair(samHeader, "altRead" + i, M2TestingUtils.DEFAULT_READ_LENGTH,
+                    M2TestingUtils.DEFAULT_START_POSITION, M2TestingUtils.DEFAULT_START_POSITION, true, false);
+            overlappingPair.forEach(read -> {
+                read.setReadGroup(M2TestingUtils.DEFAULT_READ_GROUP_NAME);
+                read.setMappingQuality(60);
+                read.setBases(M2TestingUtils.DEFAULT_ALT_BASES);
+                read.setBaseQualities(M2TestingUtils.getUniformBQArray(altQuality, M2TestingUtils.DEFAULT_READ_LENGTH));
+                writer.addRead(read);
+            });
+        }
+
+        writer.close(); // closing the writer writes to the file
+        // End creating sam file
+
+        final File unfilteredVcf = File.createTempFile("unfiltered", ".vcf");
+        final File bamout = File.createTempFile("realigned", ".bam");
+        final String[] args = makeCommandLineArgs(Arrays.asList(
+                "-R", hg19_chr1_1M_Reference,
+                "-I", samFile.getAbsolutePath(),
+                "-tumor", M2TestingUtils.DEFAULT_SAMPLE_NAME,
+                "-O", unfilteredVcf.getAbsolutePath(),
+                "--" + AssemblyBasedCallerArgumentCollection.CORRECT_OVERLAPPING_BASE_QUALITIES_LONG_NAME, "false",
+                "--bamout", bamout.getAbsolutePath(),
+                "--" + AssemblyRegionWalker.MAX_STARTS_LONG_NAME, String.valueOf(depth)), Mutect2.class.getSimpleName())
+                ;
+        new Main().instanceMain(args);
+
+        final int d = 3;
+        final Optional<VariantContext> vc = VariantContextTestUtils.streamVcf(unfilteredVcf).findAny();
+        Assert.assertTrue(vc.isPresent());
+
+        // Test case 2: we lose strand artifact. Make sure to reproduce the error and so on
+
     }
 
     private void doMutect2Test(
