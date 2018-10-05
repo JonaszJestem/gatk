@@ -11,6 +11,7 @@ import org.apache.commons.math3.linear.RealMatrix;
 import org.apache.commons.math3.util.FastMath;
 import org.broadinstitute.hellbender.engine.FeatureContext;
 import org.broadinstitute.hellbender.engine.ReferenceContext;
+import org.broadinstitute.hellbender.tools.walkers.annotator.StrandBiasTest;
 import org.broadinstitute.hellbender.tools.walkers.genotyper.afcalc.AFCalculator;
 import org.broadinstitute.hellbender.tools.walkers.genotyper.afcalc.AFCalculatorProvider;
 import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.AssemblyBasedCallerGenotypingEngine;
@@ -101,7 +102,7 @@ public class SomaticGenotypingEngine extends AssemblyBasedCallerGenotypingEngine
 
         for( final int loc : startPosKeySet ) {
             final List<VariantContext> eventsAtThisLoc = getVariantContextsFromActiveHaplotypes(loc, haplotypes, false);
-            final VariantContext mergedVC = AssemblyBasedCallerUtils.makeMergedVariantContext(eventsAtThisLoc);
+            VariantContext mergedVC = AssemblyBasedCallerUtils.makeMergedVariantContext(eventsAtThisLoc);
             if( mergedVC == null ) {
                 continue;
             }
@@ -110,6 +111,7 @@ public class SomaticGenotypingEngine extends AssemblyBasedCallerGenotypingEngine
             final Map<Allele, List<Haplotype>> alleleMapper = createAlleleMapper(mergedVC, loc, haplotypes);
             final ReadLikelihoods<Allele> log10Likelihoods = log10ReadLikelihoods.marginalize(alleleMapper,
                     new SimpleInterval(mergedVC).expandWithinContig(ALLELE_EXTENSION, header.getSequenceDictionary()));
+
             filterOverlappingReads(log10Likelihoods, mergedVC.getReference(), loc, false);
 
             final LikelihoodMatrix<Allele> log10TumorMatrix = log10Likelihoods.sampleMatrix(log10Likelihoods.indexOfSample(tumorSample));
@@ -168,7 +170,6 @@ public class SomaticGenotypingEngine extends AssemblyBasedCallerGenotypingEngine
             final ReadLikelihoods<Allele> trimmedLikelihoods = log10Likelihoods.marginalize(trimmedToUntrimmedAlleleMap);
 
             final VariantContext annotatedCall =  annotationEngine.annotateContext(trimmedCall, featureContext, referenceContext, trimmedLikelihoods, a -> true);
-
             call.getAlleles().stream().map(alleleMapper::get).filter(Objects::nonNull).forEach(calledHaplotypes::addAll);
             returnCalls.add( annotatedCall );
         }
@@ -226,8 +227,8 @@ public class SomaticGenotypingEngine extends AssemblyBasedCallerGenotypingEngine
     }
 
     private void addGenotypes(final LikelihoodMatrix<Allele> tumorLog10Matrix,
-                                        final Optional<LikelihoodMatrix<Allele>> normalLog10Matrix,
-                                        final VariantContextBuilder callVcb) {
+                              final Optional<LikelihoodMatrix<Allele>> normalLog10Matrix,
+                              final VariantContextBuilder callVcb) {
         final double[] tumorAlleleCounts = getEffectiveCounts(tumorLog10Matrix);
         final int[] adArray = Arrays.stream(tumorAlleleCounts).mapToInt(x -> (int) FastMath.round(x)).toArray();
         final int dp = (int) MathUtils.sum(adArray);
@@ -325,6 +326,13 @@ public class SomaticGenotypingEngine extends AssemblyBasedCallerGenotypingEngine
                 if (read.allele.equals(mate.allele)) {
                     // keep the higher-quality read
                     readsToDiscard.add(read.likelihood < mate.likelihood ? read.read : mate.read);
+
+                    // mark the reads to designate that its mate was dropped - so that we can account for it in {@link StrandArtifact}
+                    // and {@link StrandBiasBySample}
+                    if (MTAC.annotateBasedOnReads){
+                        final GATKRead readToKeep = read.likelihood >= mate.likelihood ? read.read : mate.read;
+                        readToKeep.setAttribute(StrandBiasTest.DISCARDED_MATE_READ_TAG, 1);
+                    }
                 } else if (retainMismatches) {
                     // keep the alt read
                     readsToDiscard.add(read.allele.equals(ref) ? read.read : mate.read);

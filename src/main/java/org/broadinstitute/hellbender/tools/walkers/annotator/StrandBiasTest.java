@@ -21,6 +21,7 @@ public abstract class StrandBiasTest extends InfoFieldAnnotation {
 
     protected static final int ARRAY_DIM = 2;
     protected static final int ARRAY_SIZE = ARRAY_DIM * ARRAY_DIM;
+    public static final String DISCARDED_MATE_READ_TAG = "DM";
 
     @Override
     //template method for calculating strand bias annotations using the three different methods
@@ -172,6 +173,12 @@ public abstract class StrandBiasTest extends InfoFieldAnnotation {
             // a normal read with an actual strand
             final boolean isFW = !read.isReverseStrand();
             table[offset + (isFW ? 0 : 1)]++;
+
+            // This read's mate got discarded by SomaticGenotypingEngine::clipOverlappingReads()
+            if (read.hasAttribute(DISCARDED_MATE_READ_TAG)){
+                // Note that if this read is forward, then we increment its mate which we assume is reverse
+                table[offset + (isFW ? 1 : 0)]++;
+            }
         }
     }
 

@@ -16,6 +16,7 @@ import org.broadinstitute.hellbender.utils.logging.OneShotLogger;
 import org.broadinstitute.hellbender.utils.variant.GATKVCFConstants;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 import static org.broadinstitute.hellbender.tools.walkers.annotator.StrandArtifact.ArtifactState.*;
 
@@ -88,13 +89,45 @@ public class StrandArtifact extends GenotypeAnnotation implements StandardMutect
             return;
         }
         final int indexOfMaxTumorLod = MathUtils.maxElementIndex(tumorLods);
-        final Allele altAlelle = vc.getAlternateAllele(indexOfMaxTumorLod);
+        final Allele altAllele = vc.getAlternateAllele(indexOfMaxTumorLod);
 
-        final Collection<ReadLikelihoods<Allele>.BestAllele> bestAlleles = likelihoods.bestAllelesBreakingTies(g.getSampleName());
-        final int numFwdAltReads = (int) bestAlleles.stream().filter(ba -> !ba.read.isReverseStrand() && ba.isInformative() && ba.allele.equals(altAlelle)).count();
-        final int numRevAltReads = (int) bestAlleles.stream().filter(ba -> ba.read.isReverseStrand() && ba.isInformative() && ba.allele.equals(altAlelle)).count();
-        final int numFwdReads = (int) bestAlleles.stream().filter(ba -> !ba.read.isReverseStrand() && ba.isInformative()).count();
-        final int numRevReads = (int) bestAlleles.stream().filter(ba -> ba.read.isReverseStrand() && ba.isInformative()).count();
+        final Collection<ReadLikelihoods<Allele>.BestAllele> informativeBestAlleles = likelihoods.bestAllelesBreakingTies(g.getSampleName()).stream().
+                filter(ba -> ba.isInformative()).collect(Collectors.toList());
+        final Map<Strand, List<ReadLikelihoods<Allele>.BestAllele>> altReads = informativeBestAlleles.stream().filter(ba -> ba.allele.equals(altAllele))
+                .collect(Collectors.groupingBy(ba -> ba.read.isReverseStrand() ? Strand.REV : Strand.FWD));
+        // Handle the case when there's zero forward alt reads or reverse alt reads
+        if (altReads.size() < 2){
+            for (final Strand strand : Strand.values()){
+                if (! altReads.containsKey(strand)) {
+                    altReads.put(strand, new ArrayList<>());
+                }
+            }
+        }
+        final Map<Strand, List<ReadLikelihoods<Allele>.BestAllele>> refReads = informativeBestAlleles.stream().filter(ba -> ba.allele.equals(vc.getReference()))
+                .collect(Collectors.groupingBy(ba -> ba.read.isReverseStrand() ? Strand.REV : Strand.FWD));
+        if (refReads.size() < 2){
+            for (final Strand strand : Strand.values()){
+                if (! altReads.containsKey(strand)) {
+                    altReads.put(strand, new ArrayList<>());
+                }
+            }
+        }
+
+        // assume that the mate of a forward read is a reverse read and vice versa
+        final int numDiscardedFwdAltMates = (int) altReads.get(Strand.REV).stream().filter(ba -> ba.read.hasAttribute(StrandBiasTest.DISCARDED_MATE_READ_TAG)).count();
+        final int numFwdAltReads = altReads.get(Strand.FWD).size() + numDiscardedFwdAltMates;
+
+        final int numDiscardedRevAltMates = (int) altReads.get(Strand.FWD).stream().filter(ba -> ba.read.hasAttribute(StrandBiasTest.DISCARDED_MATE_READ_TAG)).count();
+        final int numRevAltReads = altReads.get(Strand.REV).size() + numDiscardedRevAltMates;
+
+        final int numDiscardedFwdRefMates = (int) refReads.get(Strand.REV).stream().filter(ba -> ba.read.hasAttribute(StrandBiasTest.DISCARDED_MATE_READ_TAG)).count();
+        final int numFwdRefReads = refReads.get(Strand.FWD).size() + numDiscardedFwdRefMates;
+
+        final int numDiscardedRevRefMates = (int) refReads.get(Strand.FWD).stream().filter(ba -> ba.read.hasAttribute(StrandBiasTest.DISCARDED_MATE_READ_TAG)).count();
+        final int numRevRefReads = refReads.get(Strand.REV).size() + numDiscardedRevRefMates;
+
+        final int numFwdReads = numFwdRefReads + numFwdAltReads;
+        final int numRevReads = numRevRefReads + numRevAltReads;
         final int numAltReads = numFwdAltReads + numRevAltReads;
         final int numReads = numFwdReads + numRevReads;
 
@@ -160,6 +193,10 @@ public class StrandArtifact extends GenotypeAnnotation implements StandardMutect
 
         gb.attribute(POSTERIOR_PROBABILITIES_KEY, posteriorProbabilities);
         gb.attribute(MAP_ALLELE_FRACTIONS_KEY, estimatedAlleleFractions.values().stream().mapToDouble(Double::doubleValue).toArray());
+    }
+
+    private enum Strand {
+        FWD, REV
     }
 
     @Override

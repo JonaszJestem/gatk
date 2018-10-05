@@ -16,8 +16,10 @@ import org.broadinstitute.hellbender.engine.FeatureDataSource;
 import org.broadinstitute.hellbender.testutils.ArgumentsBuilder;
 import org.broadinstitute.hellbender.testutils.VariantContextTestUtils;
 import org.broadinstitute.hellbender.tools.exome.orientationbiasvariantfilter.OrientationBiasUtils;
+import org.broadinstitute.hellbender.tools.walkers.annotator.StrandBiasBySample;
 import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.AssemblyBasedCallerArgumentCollection;
 import org.broadinstitute.hellbender.tools.walkers.validation.ConcordanceSummaryRecord;
+import org.broadinstitute.hellbender.utils.GATKProtectedVariantContextUtils;
 import org.broadinstitute.hellbender.utils.MathUtils;
 import org.broadinstitute.hellbender.utils.Utils;
 import org.broadinstitute.hellbender.utils.read.ArtificialReadUtils;
@@ -618,7 +620,7 @@ public class Mutect2IntegrationTest extends CommandLineProgramTest {
     public void testReadBasedAnnotations() throws IOException {
         // Test case 1: with the read correction we lose the variant - blood biopsy-like case
         // Start creating bam file
-        final int numAltPairs = 7;
+        final int numAltPairs = 5;
         final int depth = 100;
         final int refDepth = depth - 2*numAltPairs;
         final byte altQuality = 50;
@@ -654,18 +656,29 @@ public class Mutect2IntegrationTest extends CommandLineProgramTest {
                 "-I", samFile.getAbsolutePath(),
                 "-tumor", M2TestingUtils.DEFAULT_SAMPLE_NAME,
                 "-O", unfilteredVcf.getAbsolutePath(),
-                "--" + AssemblyBasedCallerArgumentCollection.CORRECT_OVERLAPPING_BASE_QUALITIES_LONG_NAME, "false",
                 "--bamout", bamout.getAbsolutePath(),
-                "--" + AssemblyRegionWalker.MAX_STARTS_LONG_NAME, String.valueOf(depth)), Mutect2.class.getSimpleName())
-                ;
+                "--" + M2ArgumentCollection.ANNOTATE_BASED_ON_READS_LONG_NAME, "true",
+                "--annotation", StrandBiasBySample.class.getSimpleName(),
+                "--" + AssemblyRegionWalker.MAX_STARTS_LONG_NAME, String.valueOf(depth)), Mutect2.class.getSimpleName());
         new Main().instanceMain(args);
 
-        final int d = 3;
         final Optional<VariantContext> vc = VariantContextTestUtils.streamVcf(unfilteredVcf).findAny();
         Assert.assertTrue(vc.isPresent());
 
         // Test case 2: we lose strand artifact. Make sure to reproduce the error and so on
+        final Genotype g = vc.get().getGenotype(M2TestingUtils.DEFAULT_SAMPLE_NAME);
+        final int[] contingencyTable = GATKProtectedVariantContextUtils.getAttributeAsIntArray(g, GATKVCFConstants.STRAND_BIAS_BY_SAMPLE_KEY, () -> null, -1);
 
+        final int REF_FWD_INDEX = 0;
+        final int REF_REV_INDEX = 1;
+        final int ALT_FWD_INDEX = 2;
+        final int ALT_REV_INDEX = 3;
+        Assert.assertEquals(contingencyTable[REF_FWD_INDEX], refDepth/2);
+        Assert.assertEquals(contingencyTable[REF_REV_INDEX], refDepth/2);
+        Assert.assertEquals(contingencyTable[ALT_FWD_INDEX], numAltPairs);
+        Assert.assertEquals(contingencyTable[ALT_REV_INDEX], numAltPairs);
+
+        Assert.assertFalse(vc.get().getFilters().contains(GATKVCFConstants.STRAND_ARTIFACT_FILTER_NAME));
     }
 
     private void doMutect2Test(
