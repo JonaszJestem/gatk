@@ -30,7 +30,7 @@ public class Mutect2FilteringEngine {
 
     public Mutect2FilteringEngine(final M2FiltersArgumentCollection MTFAC, final String tumorSample, final Optional<String> normalSample) {
         this.MTFAC = MTFAC;
-        contamination = MTFAC.contaminationTable == null ? 0.0 : ContaminationRecord.readFromFile(MTFAC.contaminationTable).get(0).getContamination();
+        contamination = MTFAC.contaminationTable == null ? MTFAC.contaminationEstimate : ContaminationRecord.readFromFile(MTFAC.contaminationTable).get(0).getContamination();
         this.tumorSample = tumorSample;
         this.normalSample = normalSample;
         somaticPriorProb = Math.pow(10, MTFAC.log10PriorProbOfSomaticEvent);
@@ -358,6 +358,7 @@ public class Mutect2FilteringEngine {
         applyStrandArtifactFilter(MTFAC, vc, filterResult);
         applyBaseQualityFilter(MTFAC, vc, filterResult);
         applyMappingQualityFilter(MTFAC, vc, filterResult);
+        applyContaminationFilter(MTFAC, vc, filterResult);
 
         if (!MTFAC.mitochondria) {
             applyFilteredHaplotypeFilter(MTFAC, vc, filterResult, firstPass);
@@ -367,7 +368,6 @@ public class Mutect2FilteringEngine {
             applyGermlineVariantFilter(MTFAC, vc, filterResult);
             applyArtifactInNormalFilter(MTFAC, vc, filterResult);
             applySTRFilter(vc, filterResult);
-            applyContaminationFilter(MTFAC, vc, filterResult);
             applyMedianFragmentLengthDifferenceFilter(MTFAC, vc, filterResult);
             applyReadPositionFilter(MTFAC, vc, filterResult);
             // The ReadOrientation filter uses the information gathered during the first pass

@@ -42,6 +42,7 @@ public class M2ArgumentCollection extends AssemblyBasedCallerArgumentCollection 
 
     public static final double DEFAULT_AF_FOR_TUMOR_ONLY_CALLING = 5e-8;
     public static final double DEFAULT_AF_FOR_TUMOR_NORMAL_CALLING = 1e-6;
+    public static final double DEFAULT_AF_FOR_MITO_CALLING = 4e-3;
     public static final double DEFAULT_EMISSION_LOD = 3.0;
     public static final double DEFAULT_MITO_EMISSION_LOD = 0;
     public static final double DEFAULT_INITIAL_LOD = 2.0;
@@ -100,7 +101,8 @@ public class M2ArgumentCollection extends AssemblyBasedCallerArgumentCollection 
 
     public double getDefaultAlleleFrequency() {
         return afOfAllelesNotInGermlineResource >= 0 ? afOfAllelesNotInGermlineResource :
-                (normalSample == null ? DEFAULT_AF_FOR_TUMOR_ONLY_CALLING : DEFAULT_AF_FOR_TUMOR_NORMAL_CALLING);
+                (mitochondria ? DEFAULT_AF_FOR_MITO_CALLING:
+                (normalSample == null ? DEFAULT_AF_FOR_TUMOR_ONLY_CALLING : DEFAULT_AF_FOR_TUMOR_NORMAL_CALLING));
     }
 
     /**

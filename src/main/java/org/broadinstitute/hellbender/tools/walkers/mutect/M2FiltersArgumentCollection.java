@@ -24,6 +24,7 @@ public class M2FiltersArgumentCollection extends AssemblyBasedCallerArgumentColl
     public static final String MAX_STRAND_ARTIFACT_PROBABILITY_LONG_NAME = "max-strand-artifact-probability";
     public static final String MIN_STRAND_ARTIFACT_ALLELE_FRACTION_LONG_NAME = "min-strand-artifact-allele-fraction";
     public static final String CONTAMINATION_TABLE_LONG_NAME = "contamination-table";
+    public static final String CONTAMINATION_ESTIMATE_LONG_NAME = "contamination-estimate";
     public static final String MAX_CONTAMINATION_PROBABILITY_LONG_NAME = "max-contamination-probability";
     public static final String UNIQUE_ALT_READ_COUNT_LONG_NAME = "unique-alt-read-count";
     public static final String TUMOR_SEGMENTATION_LONG_NAME = "tumor-segmentation";
@@ -108,6 +109,9 @@ public class M2FiltersArgumentCollection extends AssemblyBasedCallerArgumentColl
 
     @Argument(fullName = CONTAMINATION_TABLE_LONG_NAME, optional = true, doc = "Table containing contamination information.")
     public File contaminationTable = null;
+
+    @Argument(fullName = CONTAMINATION_ESTIMATE_LONG_NAME, optional = true, doc = "Estimate of contamination.")
+    public double contaminationEstimate = 0;
 
     @Argument(fullName = MAX_CONTAMINATION_PROBABILITY_LONG_NAME, optional = true, doc = "Filter variants with posterior probability to be due to contamination greater than this.")
     public double maxContaminationProbability = 0.1;
